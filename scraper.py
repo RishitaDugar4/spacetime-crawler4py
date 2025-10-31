@@ -1,6 +1,9 @@
 import re
-from urllib.parse import urldefrag, urljoin, urlparse
+from urllib.parse import parse_qs, urldefrag, urljoin, urlparse
 from bs4 import BeautifulSoup
+
+DOKU_MEDIA_PARAMS = {"do", "tab_files", "tab_details", "image", "ns"}
+
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
@@ -48,8 +51,20 @@ def is_valid(url):
     # There are already some conditions that return False.
     try:
         parsed = urlparse(url)
+        # scheme check
         if parsed.scheme not in set(["http", "https"]):
             return False
+        host = (parsed.hostname or "").lower()
+        # got stuck in a spider trap so this should help 
+        q = parse_qs(parsed.query or "")
+        if host.endswith("ics.uci.edu") and ("do" in q and "media" in q["do"]):
+            return False
+        if host.endswith("ics.uci.edu") and any(k in DOKU_MEDIA_PARAMS for k in q.keys()):
+            return False
+        # too many query params
+        if len(q) > 2:
+            return False
+        
         return not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
