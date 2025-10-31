@@ -82,7 +82,11 @@ def extract_next_links(url, resp):
             continue
 
         # clean up url and then add to list
-        absolute_url = urljoin(resp.raw_response.url or url, raw)
+        try:
+            absolute_url = urljoin(resp.raw_response.url or url, raw)
+        except ValueError:
+            # skip malformed links like http://YOUR_IP/
+            continue
         clean_url, _ = urldefrag(absolute_url)  # remove fragment
         links.append(clean_url)
 
