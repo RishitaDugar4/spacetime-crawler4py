@@ -6,60 +6,7 @@ DOKU_MEDIA_PARAMS = {"do", "tab_files", "tab_details", "image", "ns"}
 
 ALLOWED_DOMAINS = ( ".ics.uci.edu", ".cs.uci.edu", ".informatics.uci.edu", ".stat.uci.edu")
 
-def scraper(url, resp):
-    links = extract_next_links(url, resp)
-    return [link for link in links if is_valid(link)]
-
-def tokenize(text: str) -> List[str]:
-    text = text.lower()
-    tokens = re.findall(r'\b[a-zA-Z]{2,}\b', text)
-
-    return tokens
-
-# extact duplication detection -----------------------------------------------------------------------------------
-
- def is_duplicate(content):
-    content_hash = compute_content_hash(content)
-
-    if content_hash in CRAWLED_CONTENT_HASHES:
-        return True # already seen
-    else:
-        CRAWLED_CONTENT_HASHES.add(content_hash)
-        return False # never seen 
-
-CRAWLED_CONTENT_HASHES = set() #global var
-
-def compute_content_hash(content): 
-    # converts html bytes --> hashable string hash 
-    text = content.decode('utf-8', errors='ignore')
-    return polynomial_rolling_hash(text)
-
-# reference: https://www.geeksforgeeks.org/dsa/string-hashing-using-polynomial-rolling-hash-function/ 
-def polynomial_rolling_hash(s, base=31, mod=10**9 + 9):
-    # converts into hash 
-    hash_value = 0
-    power = 1
-    for ch in s:
-        hash_value = (hash_value + (ord(ch) - ord('a') + 1) * power) % mod
-        power = (power * base) % mod
-    return hash_value
-
- # extact duplication detection -----------------------------------------------------------------------------------
-
-def extract_next_links(url, resp):
-    # Implementation required.
-    # url: the URL that was used to get the page
-    # resp.url: the actual url of the page
-    # resp.status: the status code returned by the server. 200 is OK, you got the page. Other numbers mean that there was some kind of problem.
-    # resp.error: when status is not 200, you can check the error here, if needed.
-    # resp.raw_response: this is where the page actually is. More specifically, the raw_response has two parts:
-    #         resp.raw_response.url: the url, again
-    #         resp.raw_response.content: the content of the page!
-    # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
-    
-    links = []
-
-    stopwords = ["a", "about", "above", "after", "again", "against", "all", "am", "an", "and",
+STOPWORDS = ["a", "about", "above", "after", "again", "against", "all", "am", "an", "and",
     "any", "are", "aren't", "as", "at", "be", "because", "been", "before",
     "being", "below", "between", "both", "but", "by", "can't", "cannot", "could",
     "couldn't", "did", "didn't", "do", "does", "doesn't", "doing", "don't",
@@ -80,6 +27,59 @@ def extract_next_links(url, resp):
     "why", "why's", "with", "won't", "would", "wouldn't", "you", "you'd",
     "you'll", "you're", "you've", "your", "yours", "yourself", "yourselves"]
 
+def scraper(url, resp):
+    links = extract_next_links(url, resp)
+    return [link for link in links if is_valid(link)]
+
+def tokenize(text: str) -> list[str]:
+    text = text.lower()
+    tokens = re.findall(r'\b[a-zA-Z]{2,}\b', text)
+
+    return tokens
+
+# extact duplication detection -----------------------------------------------------------------------------------
+
+def is_duplicate(content):
+    content_hash = compute_content_hash(content)
+    
+    if content_hash in CRAWLED_CONTENT_HASHES:
+        return True # already seen
+    else:
+        CRAWLED_CONTENT_HASHES.add(content_hash)
+        return False # never seen 
+
+CRAWLED_CONTENT_HASHES = set() #global var
+
+def compute_content_hash(content): 
+    # converts html bytes --> hashable string hash 
+    text = content.decode('utf-8', errors='ignore')
+    return polynomial_rolling_hash(text)
+
+# reference: https://www.geeksforgeeks.org/dsa/string-hashing-using-polynomial-rolling-hash-function/ 
+def polynomial_rolling_hash(s, base=31, mod=10**9 + 9):
+    # converts into hash 
+    hash_value = 0
+    power = 1
+    for ch in s:
+        hash_value = (hash_value + (ord(ch) - ord('a') + 1) * power) % mod
+        power = (power * base) % mod
+    return hash_value
+
+ # extact duplication detection -----------------------------------------------------------------------------------
+
+def extract_next_links(url, resp):
+    # Implementation required.
+    # url: the URL that was used to get the page
+    # resp.url: the actual url of the page
+    # resp.status: the status code returned by the server. 200 is OK, you got the page. Other numbers mean that there was some kind of problem.
+    # resp.error: when status is not 200, you can check the error here, if needed.
+    # resp.raw_response: this is where the page actually is. More specifically, the raw_response has two parts:
+    #         resp.raw_response.url: the url, again
+    #         resp.raw_response.content: the content of the page!
+    # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
+    
+    links = []
+
     # basic check
     if resp is None or resp.status != 200 or resp.raw_response is None:
         return links
@@ -94,7 +94,7 @@ def extract_next_links(url, resp):
     soup = BeautifulSoup(html, 'lxml')
 
     # count words for Question 2
-    text = soup.get_text(separator=' ').split()
+    text = soup.get_text(separator=' ')
     words = [w for w in tokenize(text) if w and w not in STOPWORDS]
     word_count = len(words)
 
