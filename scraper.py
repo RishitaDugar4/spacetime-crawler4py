@@ -12,7 +12,7 @@ def scraper(url, resp):
 
 def tokenize(text: str) -> List[str]:
     text = text.lower()
-    tokenx = re.findall(r'\b[a-zA-Z]{2,}\b', text)
+    tokens = re.findall(r'\b[a-zA-Z]{2,}\b', text)
 
     return tokens
 
@@ -22,10 +22,10 @@ def tokenize(text: str) -> List[str]:
     content_hash = compute_content_hash(content)
 
     if content_hash in CRAWLED_CONTENT_HASHES:
-        return True # already seen
-    else:
-        CRAWLED_CONTENT_HASHES.add(content_hash)
-        return False # never seen 
+        return True # already seen
+    else:
+        CRAWLED_CONTENT_HASHES.add(content_hash)
+        return False # never seen 
 
 CRAWLED_CONTENT_HASHES = set() #global var
 
@@ -93,7 +93,7 @@ def extract_next_links(url, resp):
     html = resp.raw_response.content
     soup = BeautifulSoup(html, 'lxml')
 
-    # count words for q2
+    # count words for Question 2
     text = soup.get_text(separator=' ').split()
     words = [w for w in tokenize(text) if w and w not in STOPWORDS]
     word_count = len(words)
