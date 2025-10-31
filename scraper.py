@@ -4,10 +4,17 @@ from bs4 import BeautifulSoup
 
 DOKU_MEDIA_PARAMS = {"do", "tab_files", "tab_details", "image", "ns"}
 
+ALLOWED_DOMAINS = ( ".ics.uci.edu", ".cs.uci.edu", ".informatics.uci.edu", ".stat.uci.edu")
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
     return [link for link in links if is_valid(link)]
+
+def tokenize(text: str) -> List[str]:
+    text = text.lower()
+    tokenx = re.findall(r'\b[a-zA-Z]{2,}\b', text)
+
+    return tokens
 
 def extract_next_links(url, resp):
     # Implementation required.
@@ -21,7 +28,8 @@ def extract_next_links(url, resp):
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
     
     links = []
-    stopwords = [ "a", "about", "above", "after", "again", "against", "all", "am", "an", "and",
+
+    stopwords = ["a", "about", "above", "after", "again", "against", "all", "am", "an", "and",
     "any", "are", "aren't", "as", "at", "be", "because", "been", "before",
     "being", "below", "between", "both", "but", "by", "can't", "cannot", "could",
     "couldn't", "did", "didn't", "do", "does", "doesn't", "doing", "don't",
@@ -40,7 +48,7 @@ def extract_next_links(url, resp):
     "we'll", "we're", "we've", "were", "weren't", "what", "what's", "when",
     "when's", "where", "where's", "which", "while", "who", "who's", "whom",
     "why", "why's", "with", "won't", "would", "wouldn't", "you", "you'd",
-    "you'll", "you're", "you've", "your", "yours", "yourself", "yourselves" ]
+    "you'll", "you're", "you've", "your", "yours", "yourself", "yourselves"]
 
     # basic check
     if resp is None or resp.status != 200 or resp.raw_response is None:
@@ -50,39 +58,57 @@ def extract_next_links(url, resp):
     c_type = (resp.raw_response.headers.get('Content-Type') or '').lower()
     if 'text/html' not in c_type:
         return links
+
     # get the html 
     html = resp.raw_response.content
     soup = BeautifulSoup(html, 'lxml')
+
+    # count words for q2
+    text = soup.get_text(separator=' ').split()
+    words = [w for w in tokenize(text) if w and w not in STOPWORDS]
+    word_count = len(words)
+
+    if word_count < 100:
+        return links
+    elif word_count < 300 and len(html) > 500_000:
+        return links
+
     # extract all anchor tags
     for a_tag in soup.find_all('a', href=True):
         raw = a_tag['href'].strip()
         # no non-web linkts
         if raw.startswith('mailto:') or raw.startswith('javascript:') or raw.startswith('tel:'):
             continue
+
         # clean up url and then add to list
         absolute_url = urljoin(resp.raw_response.url or url, raw)
         clean_url, _ = urldefrag(absolute_url)  # remove fragment
         links.append(clean_url)
+
     # remove any duplicates and return list
-    return list(set(links))
+    unique_pages = set(links) #saved into var so we can calculate the length of the list
+    return list(links)
     
 
 def is_valid(url):
     # Decide whether to crawl this url or not. 
     # If you decide to crawl it, return True; otherwise return False.
     # There are already some conditions that return False.
+    
     try:
         parsed = urlparse(url)
         # scheme check
         if parsed.scheme not in set(["http", "https"]):
             return False
         host = (parsed.hostname or "").lower()
+
         # got stuck in a spider trap so this should help 
         q = parse_qs(parsed.query or "")
         if host.endswith("ics.uci.edu") and ("do" in q and "media" in q["do"]):
             return False
         if host.endswith("ics.uci.edu") and any(k in DOKU_MEDIA_PARAMS for k in q.keys()):
             return False
+
         # too many query params
         if len(q) > 2:
             return False
