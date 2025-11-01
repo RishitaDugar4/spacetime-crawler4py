@@ -1,9 +1,9 @@
 import re
 from urllib.parse import parse_qs, urldefrag, urljoin, urlparse
 from bs4 import BeautifulSoup
+from collections import defaultdict, Counter
 
 DOKU_MEDIA_PARAMS = {"do", "tab_files", "tab_details", "image", "ns"}
-
 ALLOWED_DOMAINS = ( ".ics.uci.edu", ".cs.uci.edu", ".informatics.uci.edu", ".stat.uci.edu")
 
 STOPWORDS = ["a", "about", "above", "after", "again", "against", "all", "am", "an", "and",
@@ -27,16 +27,30 @@ STOPWORDS = ["a", "about", "above", "after", "again", "against", "all", "am", "a
     "why", "why's", "with", "won't", "would", "wouldn't", "you", "you'd",
     "you'll", "you're", "you've", "your", "yours", "yourself", "yourselves"]
 
+SUBDOMAIN_PAGE_COUNT = defaultdict(set)
+CRAWLED_CONTENT_HASHES = set() #global var
+WORD_FREQUENCIES = Counter()
+TOTAL_UNIQUE_PAGES = set()
+LONGEST_PAGE = {"url": None, "word_count": 0}
+
+
 def scraper(url, resp):
     links = extract_next_links(url, resp)
-    return [link for link in links if is_valid(link)]
+    valid_links = [link for link in links if is_valid(link)]
+    
+    for link in valid_links:
+        parsed = urlparse(link)
+        host = parsed.hostname.lower()
+        if host.endswith(".uci.edu"):
+            SUBDOMAIN_PAGE_COUNT[host].add(link)
+
+    return valid_links
 
 def tokenize(text: str) -> list[str]:
     text = text.lower()
     tokens = re.findall(r'\b[a-zA-Z]{2,}\b', text)
 
     return tokens
-
 
 def extract_next_links(url, resp):
     # Implementation required.
@@ -60,6 +74,9 @@ def extract_next_links(url, resp):
     if 'text/html' not in c_type:
         return links
 
+    if resp.raw_response and is_duplicate(resp.raw_response.content):
+        return []
+
     # get the html 
     html = resp.raw_response.content
     soup = BeautifulSoup(html, 'lxml')
@@ -73,6 +90,13 @@ def extract_next_links(url, resp):
         return links
     elif word_count < 300 and len(html) > 500_000:
         return links
+
+    TOTAL_UNIQUE_PAGES.add(url)
+    WORD_FREQUENCIES.update(words)
+
+    if word_count > LONGEST_PAGE['word_count']:
+        LONGEST_PAGE["url"] = url
+        LONGEST_PAGE["word_count"] = word_count
 
     # extract all anchor tags
     for a_tag in soup.find_all('a', href=True):
@@ -93,7 +117,7 @@ def extract_next_links(url, resp):
 
     # remove any duplicates and return list
     unique_pages = set(links) #saved into var so we can calculate the length of the list
-    return list(links)
+    return list(unique_pages)
     
 
 def is_valid(url):
@@ -104,7 +128,7 @@ def is_valid(url):
     try:
         parsed = urlparse(url)
         # scheme check
-        if parsed.scheme not in set(["http", "https"]):
+        if parsed.scheme not in {"http", "https"}:
             return False
         host = (parsed.hostname or "").lower()
 
@@ -115,7 +139,13 @@ def is_valid(url):
         if host.endswith("ics.uci.edu") and any(k in DOKU_MEDIA_PARAMS for k in q.keys()):
             return False
 
-        if not any(host.endswith(domain) for domain in ALLOWED_DOMAINS):
+        if parsed.fragment:
+            return False
+
+        if not (
+            any(host.endswith(domain) for domain in ALLOWED_DOMAINS)
+            or (host.endswith("today.uci.edu") and parsed.path.startswith("/department/information_computer_sciences"))
+        ):
             return False
 
         # too many query params
@@ -135,18 +165,16 @@ def is_valid(url):
     except TypeError:
         print ("TypeError for ", parsed)
         raise
+        
 # extact duplication detection -----------------------------------------------------------------------------------
 
 def is_duplicate(content):
     content_hash = compute_content_hash(content)
-    
     if content_hash in CRAWLED_CONTENT_HASHES:
         return True # already seen
     else:
         CRAWLED_CONTENT_HASHES.add(content_hash)
         return False # never seen 
-
-CRAWLED_CONTENT_HASHES = set() #global var
 
 def compute_content_hash(content): 
     # converts html bytes --> hashable string hash 
@@ -164,3 +192,18 @@ def polynomial_rolling_hash(s, base=31, mod=10**9 + 9):
     return hash_value
 
  # extact duplication detection -----------------------------------------------------------------------------------
+
+def generate_report(filename="report.txt"):
+    with open(filename, "w") as file:
+        file.write(f"Unique pages: {len(TOTAl_UNIQUE_PAGES)}\n")
+        file.write(f"Longest word count url: {LONGEST_PAGE}\n")
+        file.write(f"Longest word count: {LONGEST_PAGE['word_count']}\n")
+
+        for word, count in WORD_FREQUENCIES.most_common(50):
+            file.write(f"{word}: {count}\n")
+
+        all_subdomains = sorted(SUBDOMAIN_PAGE_COUNT.keys())
+        file.write(f'Total subdomains: {len(all_subdomains)}\n')
+        
+        for subdomain in all_subdomains:
+            file.write(f"{subdomain}: {len(SUBDOMAIN_PAGE_COUNT[subdomain])}\n")
