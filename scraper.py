@@ -138,8 +138,9 @@ def is_valid(url):
             return False
         if host.endswith("ics.uci.edu") and any(k in DOKU_MEDIA_PARAMS for k in q.keys()):
             return False
-
         if parsed.fragment:
+            return False
+        if "timeline" in parsed.path.lower() or re.search(r"/\d{4}/\d{2}/\d{2}", parsed.path) or re.search(r"date=\d{4}-\d{2}-\d{2}", parsed.query):
             return False
 
         if not (
