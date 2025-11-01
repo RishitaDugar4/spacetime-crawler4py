@@ -135,3 +135,32 @@ def is_valid(url):
     except TypeError:
         print ("TypeError for ", parsed)
         raise
+# extact duplication detection -----------------------------------------------------------------------------------
+
+def is_duplicate(content):
+    content_hash = compute_content_hash(content)
+    
+    if content_hash in CRAWLED_CONTENT_HASHES:
+        return True # already seen
+    else:
+        CRAWLED_CONTENT_HASHES.add(content_hash)
+        return False # never seen 
+
+CRAWLED_CONTENT_HASHES = set() #global var
+
+def compute_content_hash(content): 
+    # converts html bytes --> hashable string hash 
+    text = content.decode('utf-8', errors='ignore')
+    return polynomial_rolling_hash(text)
+
+# reference: https://www.geeksforgeeks.org/dsa/string-hashing-using-polynomial-rolling-hash-function/ 
+def polynomial_rolling_hash(s, base=31, mod=10**9 + 9):
+    # converts into hash 
+    hash_value = 0
+    power = 1
+    for ch in s:
+        hash_value = (hash_value + (ord(ch) - ord('a') + 1) * power) % mod
+        power = (power * base) % mod
+    return hash_value
+
+ # extact duplication detection -----------------------------------------------------------------------------------
