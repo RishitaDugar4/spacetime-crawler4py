@@ -4,7 +4,6 @@ from bs4 import BeautifulSoup
 from collections import defaultdict, Counter
 
 DOKU_MEDIA_PARAMS = {"do", "tab_files", "tab_details", "image", "ns"}
-ALLOWED_DOMAINS = ( ".ics.uci.edu", ".cs.uci.edu", ".informatics.uci.edu", ".stat.uci.edu")
 
 STOPWORDS = ["a", "about", "above", "after", "again", "against", "all", "am", "an", "and",
     "any", "are", "aren't", "as", "at", "be", "because", "been", "before",
@@ -124,7 +123,8 @@ def is_valid(url):
     # Decide whether to crawl this url or not. 
     # If you decide to crawl it, return True; otherwise return False.
     # There are already some conditions that return False.
-    
+    allowed_domains = ( ".ics.uci.edu", ".cs.uci.edu", ".informatics.uci.edu", ".stat.uci.edu")
+
     try:
         parsed = urlparse(url)
         # scheme check
@@ -144,7 +144,7 @@ def is_valid(url):
             return False
 
         if not (
-            any(host.endswith(domain) for domain in ALLOWED_DOMAINS)
+            any(host.endswith(domain) for domain in allowed_domains)
             or (host.endswith("today.uci.edu") and parsed.path.startswith("/department/information_computer_sciences"))
         ):
             return False
