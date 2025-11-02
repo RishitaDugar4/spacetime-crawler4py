@@ -26,12 +26,13 @@ STOPWORDS = ["a", "about", "above", "after", "again", "against", "all", "am", "a
     "why", "why's", "with", "won't", "would", "wouldn't", "you", "you'd",
     "you'll", "you're", "you've", "your", "yours", "yourself", "yourselves"]
 
-SUBDOMAIN_PAGE_COUNT = defaultdict(set)
-CRAWLED_CONTENT_HASHES = set() #global var
-WORD_FREQUENCIES = Counter()
-TOTAL_UNIQUE_PAGES = set()
-LONGEST_PAGE = {"url": None, "word_count": 0}
+SUBDOMAIN_PAGE_COUNT = defaultdict(set) # q4
+CRAWLED_CONTENT_HASHES = set() # duplication searc
+WORD_FREQUENCIES = Counter() # q3
+TOTAL_UNIQUE_PAGES = set() # q1
+LONGEST_PAGE = {"url": None, "word_count": 0} # q2
 
+MAX_SIZE = 1_000_000
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
@@ -87,7 +88,7 @@ def extract_next_links(url, resp):
 
     if word_count < 100:
         return links
-    elif word_count < 300 and len(html) > 500_000:
+    elif word_count < 300 and len(html) > MAX_SIZE:
         return links
 
     TOTAL_UNIQUE_PAGES.add(url)
@@ -150,7 +151,7 @@ def is_valid(url):
             return False
 
         # too many query params
-        if len(q) > 2:
+        if len(q) > 4:
             return False
         
         return not re.match(
@@ -217,10 +218,6 @@ def is_near_duplicate(tokens) -> bool:
 
     near_duplicate.add(frozenset(selected_hashes))
     return False
-
-# near duplication detection -----------------------------------------------------------------------------------
-
- # extact duplication detection -----------------------------------------------------------------------------------
 
 def generate_report(filename="report.txt"):
     sw = set(STOPWORDS)

@@ -16,8 +16,11 @@ def main(config_file, restart):
 
 
 if __name__ == "__main__":
-    parser = ArgumentParser()
-    parser.add_argument("--restart", action="store_true", default=False)
-    parser.add_argument("--config_file", type=str, default="config.ini")
-    args = parser.parse_args()
-    main(args.config_file, args.restart)
+    try:
+        parser = ArgumentParser()
+        parser.add_argument("--restart", action="store_true", default=False)
+        parser.add_argument("--config_file", type=str, default="config.ini")
+        args = parser.parse_args()
+        main(args.config_file, args.restart)
+    finally:
+        generate_report()
