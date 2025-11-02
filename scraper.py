@@ -83,7 +83,7 @@ def extract_next_links(url, resp):
 
     # count words for Question 2
     text = soup.get_text(separator=' ')
-    words = [w for w in tokenize(text) if w and w not in STOPWORDS]
+    words = [w for w in tokenize(text)] # if w and w not in STOPWORDS => this is so that we can count words that ARE stop words to measure pages with largest word count. need to implement the stopwords for q3
     word_count = len(words)
 
     if word_count < 100:
