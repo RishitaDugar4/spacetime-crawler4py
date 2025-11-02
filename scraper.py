@@ -191,6 +191,34 @@ def polynomial_rolling_hash(s, base=31, mod=10**9 + 9):
         hash_value = (hash_value + (ord(ch) - ord('a') + 1) * power) % mod
         power = (power * base) % mod
     return hash_value
+    
+# near duplication detection -----------------------------------------------------------------------------------
+
+def is_near_duplicate(tokens) -> bool:
+    global near_duplicate
+
+    similarity_threshold = 0.85
+    min_token_count = 10
+    if len(tokens) < min_token_count:
+        return False
+
+    trigrams = [' '.join(tokens[i:i + 3]) for i in range(len(tokens) - 2)]
+
+    trigram_hashes = {polynomial_rolling_hash(ngram) for ngram in trigrams}
+
+    selected_hashes = {h for h in trigram_hashes if h % 4 == 0}
+
+    for fingerprint in near_duplicate:
+        intersection = selected_hashes.intersection(fingerprint)
+        union = selected_hashes.union(fingerprint)
+        similarity_score = len(intersection) / len(union) if union else 0.0
+        if similarity_score >= similarity_threshold:
+            return True
+
+    near_duplicate.add(frozenset(selected_hashes))
+    return False
+
+# near duplication detection -----------------------------------------------------------------------------------
 
  # extact duplication detection -----------------------------------------------------------------------------------
 
