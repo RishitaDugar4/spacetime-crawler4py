@@ -195,6 +195,10 @@ def polynomial_rolling_hash(s, base=31, mod=10**9 + 9):
  # extact duplication detection -----------------------------------------------------------------------------------
 
 def generate_report(filename="report.txt"):
+    sw = set(STOPWORDS)
+    filtered = [(word, count) for word, count in WORD_FREQUENCIES.items() if word not in sw]
+    filtered.sort(key=lambda kv: (-kv[1], kv[0]))
+
     with open(filename, "w") as file:
         file.write(f"Unique pages: {len(TOTAl_UNIQUE_PAGES)}\n")
         file.write(f"Longest word count url: {LONGEST_PAGE}\n")
