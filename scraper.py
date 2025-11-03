@@ -160,7 +160,7 @@ def is_valid(url):
         ):
             return False
 
-        if not valid_query(parsed.query):
+        if not valid_query(parsed):
             return False
         
         return not re.match(
@@ -247,7 +247,7 @@ def generate_report(filename="report.txt"):
 
     with open(filename, "w") as file:
         file.write(f"Unique pages: {len(TOTAL_UNIQUE_PAGES)}\n")
-        file.write(f"Longest word count url: {LONGEST_PAGE}\n")
+        file.write(f"Longest word count url: {LONGEST_PAGE['url']}\n")
         file.write(f"Longest word count: {LONGEST_PAGE['word_count']}\n")
 
         for word, count in filtered.most_common(50):
