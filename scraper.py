@@ -32,7 +32,9 @@ WORD_FREQUENCIES = Counter() # q3
 TOTAL_UNIQUE_PAGES = set() # q1
 LONGEST_PAGE = {"url": None, "word_count": 0} # q2
 
-MAX_SIZE = 1_000_000
+MAX_SIZE = 500_000
+NEAR_DUPLICATE = set()
+
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
@@ -84,9 +86,11 @@ def extract_next_links(url, resp):
     # count words for Question 2
     text = soup.get_text(separator=' ')
     words = [w for w in tokenize(text)] # if w and w not in STOPWORDS => this is so that we can count words that ARE stop words to measure pages with largest word count. need to implement the stopwords for q3
+    if is_near_duplicate(words):
+        return links
     word_count = len(words)
 
-    if word_count < 100:
+    if word_count < 50:
         return links
     elif word_count < 300 and len(html) > MAX_SIZE:
         return links
@@ -135,13 +139,25 @@ def is_valid(url):
 
         # got stuck in a spider trap so this should help 
         q = parse_qs(parsed.query or "")
-        if host.endswith("ics.uci.edu") and ("do" in q and "media" in q["do"]):
+        if ("do" in q and "media" in q["do"]):
             return False
-        if host.endswith("ics.uci.edu") and any(k in DOKU_MEDIA_PARAMS for k in q.keys()):
+        if any(k in DOKU_MEDIA_PARAMS for k in q.keys()):
             return False
         if parsed.fragment:
             return False
         if "timeline" in parsed.path.lower() or re.search(r"/\d{4}/\d{2}/\d{2}", parsed.path) or re.search(r"date=\d{4}-\d{2}-\d{2}", parsed.query):
+            return False
+        
+        if (
+            "/events/" in parsed.path
+            or "ical" in parsed.path
+            or "tribe" in parsed.path
+            or "doku.php" in parsed.path
+            or "/ca/rules" in parsed.path
+        ):
+            return False
+        
+        if host == "gitlab.ics.uci.edu":
             return False
 
         if not (
@@ -196,8 +212,6 @@ def polynomial_rolling_hash(s, base=31, mod=10**9 + 9):
 # near duplication detection -----------------------------------------------------------------------------------
 
 def is_near_duplicate(tokens) -> bool:
-    global near_duplicate
-
     similarity_threshold = 0.85
     min_token_count = 10
     if len(tokens) < min_token_count:
@@ -209,14 +223,14 @@ def is_near_duplicate(tokens) -> bool:
 
     selected_hashes = {h for h in trigram_hashes if h % 4 == 0}
 
-    for fingerprint in near_duplicate:
+    for fingerprint in NEAR_DUPLICATE:
         intersection = selected_hashes.intersection(fingerprint)
         union = selected_hashes.union(fingerprint)
         similarity_score = len(intersection) / len(union) if union else 0.0
         if similarity_score >= similarity_threshold:
             return True
 
-    near_duplicate.add(frozenset(selected_hashes))
+    NEAR_DUPLICATE.add(frozenset(selected_hashes))
     return False
 
 def generate_report(filename="report.txt"):
@@ -225,11 +239,11 @@ def generate_report(filename="report.txt"):
     filtered.sort(key=lambda kv: (-kv[1], kv[0]))
 
     with open(filename, "w") as file:
-        file.write(f"Unique pages: {len(TOTAl_UNIQUE_PAGES)}\n")
+        file.write(f"Unique pages: {len(TOTAL_UNIQUE_PAGES)}\n")
         file.write(f"Longest word count url: {LONGEST_PAGE}\n")
         file.write(f"Longest word count: {LONGEST_PAGE['word_count']}\n")
 
-        for word, count in WORD_FREQUENCIES.most_common(50):
+        for word, count in filtered.most_common(50):
             file.write(f"{word}: {count}\n")
 
         all_subdomains = sorted(SUBDOMAIN_PAGE_COUNT.keys())
