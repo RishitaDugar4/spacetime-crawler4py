@@ -177,7 +177,7 @@ def is_valid(url):
         print ("TypeError for ", parsed)
         raise
         
-def valid_query(parsed_q):
+def valid_query(parsed):
     q = parse_qs(parsed.query or "")
     
     if ("do" in q and "media" in q["do"]):
@@ -216,6 +216,8 @@ def polynomial_rolling_hash(s, base=31, mod=10**9 + 9):
             hash_value = (hash_value + (ord(ch) - ord('a') + 1) * power) % mod
         else:
             hash_value = (hash_value + ord(ch) * power) % mod
+        power = (power * base) % mod
+    return hash_value
     
 def is_near_duplicate(tokens) -> bool:
     similarity_threshold = 0.85
@@ -242,7 +244,6 @@ def is_near_duplicate(tokens) -> bool:
 def generate_report(filename="report.txt"):
     sw = set(STOPWORDS)
     filtered = Counter({word: count for word, count in WORD_FREQUENCIES.items() if word not in sw})
-    filtered.sort(key=lambda kv: (-kv[1], kv[0]))
 
     with open(filename, "w") as file:
         file.write(f"Unique pages: {len(TOTAL_UNIQUE_PAGES)}\n")
