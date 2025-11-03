@@ -138,11 +138,6 @@ def is_valid(url):
         host = (parsed.hostname or "").lower()
 
         # got stuck in a spider trap so this should help 
-        q = parse_qs(parsed.query or "")
-        if ("do" in q and "media" in q["do"]):
-            return False
-        if any(k in DOKU_MEDIA_PARAMS for k in q.keys()):
-            return False
         if parsed.fragment:
             return False
         if "timeline" in parsed.path.lower() or re.search(r"/\d{4}/\d{2}/\d{2}", parsed.path) or re.search(r"date=\d{4}-\d{2}-\d{2}", parsed.query):
@@ -152,7 +147,6 @@ def is_valid(url):
             "/events/" in parsed.path
             or "ical" in parsed.path
             or "tribe" in parsed.path
-            or "doku.php" in parsed.path
             or "/ca/rules" in parsed.path
         ):
             return False
@@ -166,8 +160,7 @@ def is_valid(url):
         ):
             return False
 
-        # too many query params
-        if len(q) > 4:
+        if not valid_query(parsed.query):
             return False
         
         return not re.match(
@@ -184,7 +177,19 @@ def is_valid(url):
         print ("TypeError for ", parsed)
         raise
         
-# extact duplication detection -----------------------------------------------------------------------------------
+def valid_query(parsed_q):
+    q = parse_qs(parsed.query or "")
+    
+    if ("do" in q and "media" in q["do"]):
+            return False
+    if any(k in DOKU_MEDIA_PARAMS for k in q.keys()):
+        return False
+
+    # too many query params
+    if len(q) > 100:
+        return False
+
+    return True
 
 def is_duplicate(content):
     content_hash = compute_content_hash(content)
@@ -199,18 +204,19 @@ def compute_content_hash(content):
     text = content.decode('utf-8', errors='ignore')
     return polynomial_rolling_hash(text)
 
-# reference: https://www.geeksforgeeks.org/dsa/string-hashing-using-polynomial-rolling-hash-function/ 
 def polynomial_rolling_hash(s, base=31, mod=10**9 + 9):
+    # Used Geeks for Geeks as a reference: 
+    #   https://www.geeksforgeeks.org/dsa/string-hashing-using-polynomial-rolling-hash-function/ 
+    
     # converts into hash 
     hash_value = 0
     power = 1
-    for ch in s:
-        hash_value = (hash_value + (ord(ch) - ord('a') + 1) * power) % mod
-        power = (power * base) % mod
-    return hash_value
+    for ch in s.lower():
+        if 'a' <= ch <= 'z':
+            hash_value = (hash_value + (ord(ch) - ord('a') + 1) * power) % mod
+        else:
+            hash_value = (hash_value + ord(ch) * power) % mod
     
-# near duplication detection -----------------------------------------------------------------------------------
-
 def is_near_duplicate(tokens) -> bool:
     similarity_threshold = 0.85
     min_token_count = 10
@@ -235,7 +241,7 @@ def is_near_duplicate(tokens) -> bool:
 
 def generate_report(filename="report.txt"):
     sw = set(STOPWORDS)
-    filtered = [(word, count) for word, count in WORD_FREQUENCIES.items() if word not in sw]
+    filtered = Counter({word: count for word, count in WORD_FREQUENCIES.items() if word not in sw})
     filtered.sort(key=lambda kv: (-kv[1], kv[0]))
 
     with open(filename, "w") as file:
