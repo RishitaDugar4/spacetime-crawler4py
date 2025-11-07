@@ -90,7 +90,7 @@ def extract_next_links(url, resp):
         return links
     word_count = len(words)
 
-    if word_count < 50:
+    if word_count < 100:
         return links
     elif word_count < 300 and len(html) > MAX_SIZE:
         return links
@@ -181,7 +181,7 @@ def valid_query(parsed):
     q = parse_qs(parsed.query or "")
     
     if ("do" in q and "media" in q["do"]):
-            return False
+        return False
     if any(k in DOKU_MEDIA_PARAMS for k in q.keys()):
         return False
 
