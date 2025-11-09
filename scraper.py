@@ -1,7 +1,9 @@
 import re
+import threading
 from urllib.parse import parse_qs, urldefrag, urljoin, urlparse
 from bs4 import BeautifulSoup
 from collections import defaultdict, Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 DOKU_MEDIA_PARAMS = {"do", "tab_files", "tab_details", "image", "ns"}
 
@@ -26,52 +28,51 @@ STOPWORDS = ["a", "about", "above", "after", "again", "against", "all", "am", "a
     "why", "why's", "with", "won't", "would", "wouldn't", "you", "you'd",
     "you'll", "you're", "you've", "your", "yours", "yourself", "yourselves"]
 
-SUBDOMAIN_PAGE_COUNT = defaultdict(set) # q4
-CRAWLED_CONTENT_HASHES = set() # duplication searc
-WORD_FREQUENCIES = Counter() # q3
-TOTAL_UNIQUE_PAGES = set() # q1
-LONGEST_PAGE = {"url": None, "word_count": 0} # q2
-
 MAX_SIZE = 500_000
+
+# -------------------- GLOBAL DATA --------------------
+SUBDOMAIN_PAGE_COUNT = defaultdict(set)
+CRAWLED_CONTENT_HASHES = set()
+WORD_FREQUENCIES = Counter()
+TOTAL_UNIQUE_PAGES = set()
+LONGEST_PAGE = {"url": None, "word_count": 0}
 NEAR_DUPLICATE = set()
+
+# Lock for thread-safe updates
+lock = threading.Lock()
+
+class SimpleResponse:
+    def __init__(self, url, status, raw_response=None, error=None):
+        self.url = url
+        self.status = status
+        self.raw_response = raw_response
+        self.error = error
 
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
     valid_links = [link for link in links if is_valid(link)]
-    
-    for link in valid_links:
-        parsed = urlparse(link)
-        host = parsed.hostname.lower()
-        if host.endswith(".uci.edu"):
-            SUBDOMAIN_PAGE_COUNT[host].add(link)
+
+    with lock:
+        for link in valid_links:
+            parsed = urlparse(link)
+            host = parsed.hostname.lower() if parsed.hostname else ""
+            if host.endswith(".uci.edu"):
+                SUBDOMAIN_PAGE_COUNT[host].add(link)
 
     return valid_links
 
+
 def tokenize(text: str) -> list[str]:
     text = text.lower()
-    tokens = re.findall(r'\b[a-zA-Z]{2,}\b', text)
+    return re.findall(r'\b[a-zA-Z]{2,}\b', text)
 
-    return tokens
 
 def extract_next_links(url, resp):
-    # Implementation required.
-    # url: the URL that was used to get the page
-    # resp.url: the actual url of the page
-    # resp.status: the status code returned by the server. 200 is OK, you got the page. Other numbers mean that there was some kind of problem.
-    # resp.error: when status is not 200, you can check the error here, if needed.
-    # resp.raw_response: this is where the page actually is. More specifically, the raw_response has two parts:
-    #         resp.raw_response.url: the url, again
-    #         resp.raw_response.content: the content of the page!
-    # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
-    
     links = []
-
-    # basic check
     if resp is None or resp.status != 200 or resp.raw_response is None:
         return links
 
-    # only want html pages
     c_type = (resp.raw_response.headers.get('Content-Type') or '').lower()
     if 'text/html' not in c_type:
         return links
@@ -79,90 +80,66 @@ def extract_next_links(url, resp):
     if resp.raw_response and is_duplicate(resp.raw_response.content):
         return []
 
-    # get the html 
     html = resp.raw_response.content
     soup = BeautifulSoup(html, 'lxml')
-
-    # count words for Question 2
     text = soup.get_text(separator=' ')
-    words = [w for w in tokenize(text)] # if w and w not in STOPWORDS => this is so that we can count words that ARE stop words to measure pages with largest word count. need to implement the stopwords for q3
+    words = tokenize(text)
+
     if is_near_duplicate(words):
         return links
-    word_count = len(words)
 
+    word_count = len(words)
     if word_count < 100:
         return links
     elif word_count < 300 and len(html) > MAX_SIZE:
         return links
 
-    TOTAL_UNIQUE_PAGES.add(url)
-    WORD_FREQUENCIES.update(words)
+    with lock:
+        TOTAL_UNIQUE_PAGES.add(url)
+        WORD_FREQUENCIES.update(words)
+        if word_count > LONGEST_PAGE['word_count']:
+            LONGEST_PAGE["url"] = url
+            LONGEST_PAGE["word_count"] = word_count
 
-    if word_count > LONGEST_PAGE['word_count']:
-        LONGEST_PAGE["url"] = url
-        LONGEST_PAGE["word_count"] = word_count
-
-    # extract all anchor tags
     for a_tag in soup.find_all('a', href=True):
         raw = a_tag['href'].strip()
-        # no non-web linkts
-        if raw.startswith('mailto:') or raw.startswith('javascript:') or raw.startswith('tel:'):
+        if raw.startswith(('mailto:', 'javascript:', 'tel:')):
             continue
-
-        # clean up url and then add to list
         try:
             absolute_url = urljoin(resp.raw_response.url or url, raw)
         except ValueError:
-            # skip malformed links like http://YOUR_IP/
             continue
-        clean_url, _ = urldefrag(absolute_url)  # remove fragment
+        clean_url, _ = urldefrag(absolute_url)
         links.append(clean_url)
 
+    return list(set(links))
 
-    # remove any duplicates and return list
-    unique_pages = set(links) #saved into var so we can calculate the length of the list
-    return list(unique_pages)
-    
 
 def is_valid(url):
-    # Decide whether to crawl this url or not. 
-    # If you decide to crawl it, return True; otherwise return False.
-    # There are already some conditions that return False.
-    allowed_domains = ( ".ics.uci.edu", ".cs.uci.edu", ".informatics.uci.edu", ".stat.uci.edu")
+    allowed_domains = (".ics.uci.edu", ".cs.uci.edu", ".informatics.uci.edu", ".stat.uci.edu")
 
     try:
         parsed = urlparse(url)
-        # scheme check
         if parsed.scheme not in {"http", "https"}:
             return False
-        host = (parsed.hostname or "").lower()
 
-        # got stuck in a spider trap so this should help 
+        host = (parsed.hostname or "").lower()
         if parsed.fragment:
             return False
         if "timeline" in parsed.path.lower() or re.search(r"/\d{4}/\d{2}/\d{2}", parsed.path) or re.search(r"date=\d{4}-\d{2}-\d{2}", parsed.query):
             return False
-        
-        if (
-            "/events/" in parsed.path
-            or "ical" in parsed.path
-            or "tribe" in parsed.path
-            or "/ca/rules" in parsed.path
-        ):
+        if ("/events/" in parsed.path or "ical" in parsed.path or "tribe" in parsed.path or "/ca/rules" in parsed.path):
             return False
-        
         if host == "gitlab.ics.uci.edu":
             return False
-
         if not (
             any(host.endswith(domain) for domain in allowed_domains)
             or (host.endswith("today.uci.edu") and parsed.path.startswith("/department/information_computer_sciences"))
         ):
             return False
-
         if not valid_query(parsed):
             return False
-        
+
         return not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
@@ -171,44 +148,42 @@ def is_valid(url):
             + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
             + r"|epub|dll|cnf|tgz|sha1"
             + r"|thmx|mso|arff|rtf|jar|csv"
-            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower())
-
+            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower()
+        )
     except TypeError:
-        print ("TypeError for ", parsed)
-        raise
-        
+        print("TypeError for ", parsed)
+        return False
+
+
 def valid_query(parsed):
     q = parse_qs(parsed.query or "")
-    
     if ("do" in q and "media" in q["do"]):
         return False
     if any(k in DOKU_MEDIA_PARAMS for k in q.keys()):
         return False
-
-    # too many query params
     if len(q) > 100:
         return False
-
     return True
+
 
 def is_duplicate(content):
     content_hash = compute_content_hash(content)
-    if content_hash in CRAWLED_CONTENT_HASHES:
-        return True # already seen
-    else:
+    with lock:
+        if content_hash in CRAWLED_CONTENT_HASHES:
+            return True
         CRAWLED_CONTENT_HASHES.add(content_hash)
-        return False # never seen 
+    return False
 
-def compute_content_hash(content): 
-    # converts html bytes --> hashable string hash 
+
+def compute_content_hash(content):
     text = content.decode('utf-8', errors='ignore')
     return polynomial_rolling_hash(text)
+
 
 def polynomial_rolling_hash(s, base=31, mod=10**9 + 9):
     # Used Geeks for Geeks as a reference: 
     #   https://www.geeksforgeeks.org/dsa/string-hashing-using-polynomial-rolling-hash-function/ 
     
-    # converts into hash 
     hash_value = 0
     power = 1
     for ch in s.lower():
@@ -218,7 +193,8 @@ def polynomial_rolling_hash(s, base=31, mod=10**9 + 9):
             hash_value = (hash_value + ord(ch) * power) % mod
         power = (power * base) % mod
     return hash_value
-    
+
+
 def is_near_duplicate(tokens) -> bool:
     similarity_threshold = 0.85
     min_token_count = 10
@@ -226,20 +202,56 @@ def is_near_duplicate(tokens) -> bool:
         return False
 
     trigrams = [' '.join(tokens[i:i + 3]) for i in range(len(tokens) - 2)]
-
     trigram_hashes = {polynomial_rolling_hash(ngram) for ngram in trigrams}
-
     selected_hashes = {h for h in trigram_hashes if h % 4 == 0}
 
-    for fingerprint in NEAR_DUPLICATE:
-        intersection = selected_hashes.intersection(fingerprint)
-        union = selected_hashes.union(fingerprint)
-        similarity_score = len(intersection) / len(union) if union else 0.0
-        if similarity_score >= similarity_threshold:
-            return True
-
-    NEAR_DUPLICATE.add(frozenset(selected_hashes))
+    with lock:
+        for fingerprint in NEAR_DUPLICATE:
+            intersection = selected_hashes.intersection(fingerprint)
+            union = selected_hashes.union(fingerprint)
+            similarity_score = len(intersection) / len(union) if union else 0.0
+            if similarity_score >= similarity_threshold:
+                return True
+        NEAR_DUPLICATE.add(frozenset(selected_hashes))
     return False
+
+def fetch_and_scrape(url):
+    try:
+        # r = requests.get(url, timeout=10)
+        resp = SimpleResponse(
+            url=url,
+            status=url.status_code,
+            raw_response=r if url.status_code == 200 else None
+        )
+        return scraper(url, resp)
+    except Exception as e:
+        print(f"Failed to fetch {url}: {e}")
+        return []
+
+
+def crawl(start_urls, max_pages=300):
+    visited = set()
+    to_visit = list(start_urls)
+    futures = []
+
+    with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
+        while to_visit and len(visited) < max_pages:
+            url = to_visit.pop()
+            if url in visited:
+                continue
+            visited.add(url)
+
+            future = executor.submit(fetch_and_scrape, url)
+            futures.append(future)
+
+        for future in as_completed(futures):
+            try:
+                new_links = future.result()
+                for link in new_links:
+                    if link not in visited:
+                        to_visit.append(link)
+            except Exception as e:
+                print(f"Error: {e}")
 
 def generate_report(filename="report.txt"):
     sw = set(STOPWORDS)
@@ -255,6 +267,5 @@ def generate_report(filename="report.txt"):
 
         all_subdomains = sorted(SUBDOMAIN_PAGE_COUNT.keys())
         file.write(f'Total subdomains: {len(all_subdomains)}\n')
-        
         for subdomain in all_subdomains:
             file.write(f"{subdomain}: {len(SUBDOMAIN_PAGE_COUNT[subdomain])}\n")
