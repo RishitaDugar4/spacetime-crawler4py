@@ -3,7 +3,6 @@ import threading
 from urllib.parse import parse_qs, urldefrag, urljoin, urlparse
 from bs4 import BeautifulSoup
 from collections import defaultdict, Counter
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 DOKU_MEDIA_PARAMS = {"do", "tab_files", "tab_details", "image", "ns"}
 
@@ -214,44 +213,6 @@ def is_near_duplicate(tokens) -> bool:
                 return True
         NEAR_DUPLICATE.add(frozenset(selected_hashes))
     return False
-
-def fetch_and_scrape(url):
-    try:
-        # r = requests.get(url, timeout=10)
-        resp = SimpleResponse(
-            url=url,
-            status=url.status_code,
-            raw_response=r if url.status_code == 200 else None
-        )
-        return scraper(url, resp)
-    except Exception as e:
-        print(f"Failed to fetch {url}: {e}")
-        return []
-
-
-def crawl(start_urls, max_pages=300):
-    visited = set()
-    to_visit = list(start_urls)
-    futures = []
-
-    with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
-        while to_visit and len(visited) < max_pages:
-            url = to_visit.pop()
-            if url in visited:
-                continue
-            visited.add(url)
-
-            future = executor.submit(fetch_and_scrape, url)
-            futures.append(future)
-
-        for future in as_completed(futures):
-            try:
-                new_links = future.result()
-                for link in new_links:
-                    if link not in visited:
-                        to_visit.append(link)
-            except Exception as e:
-                print(f"Error: {e}")
 
 def generate_report(filename="report.txt"):
     sw = set(STOPWORDS)
