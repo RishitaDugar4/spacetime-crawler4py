@@ -18,11 +18,17 @@ class Worker(Thread):
         super().__init__(daemon=True)
         
     def run(self):
+        idle_backoff = 0.05
         while True:
             tbd_url = self.frontier.get_tbd_url()
             if not tbd_url:
-                self.logger.info("Frontier is empty. Stopping Crawler.")
-                break
+                # If no URL to crawl, back off exponentially up to 0.5s
+                time.sleep(min(idle_backoff, 0.5))
+                # double the backoff time for next time
+                idle_backoff = min(idle_backoff * 2, 0.5)
+                # if it stays empty for a while, we can assume crawling is done
+                continue
+            idle_backoff = 0.05  # reset backoff time 
             resp = download(tbd_url, self.config, self.logger)
             self.logger.info(
                 f"Downloaded {tbd_url}, status <{resp.status}>, "

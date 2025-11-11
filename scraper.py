@@ -1,5 +1,6 @@
+
 import re
-import threading
+from threading import RLock
 from urllib.parse import parse_qs, urldefrag, urljoin, urlparse
 from bs4 import BeautifulSoup
 from collections import defaultdict, Counter
@@ -34,18 +35,19 @@ CRAWLED_CONTENT_HASHES = set()
 WORD_FREQUENCIES = Counter()
 TOTAL_UNIQUE_PAGES = set()
 LONGEST_PAGE = {"url": None, "word_count": 0}
-
-NEAR_DUPLICATE = set()
+NEAR_DUPLICATE = set() 
+LOCK = RLock() # to protect shared data structures
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
     valid_links = [link for link in links if is_valid(link)]
 
-    for link in valid_links:
-        parsed = urlparse(link)
-        host = parsed.hostname.lower() if parsed.hostname else ""
-        if host.endswith(".uci.edu"):
-            SUBDOMAIN_PAGE_COUNT[host].add(link)
+    with LOCK: # protect shared data structures
+        for link in valid_links:
+            parsed = urlparse(link)
+            host = parsed.hostname.lower() if parsed.hostname else ""
+            if host.endswith(".uci.edu"):
+                SUBDOMAIN_PAGE_COUNT[host].add(link)
 
     return valid_links
 
@@ -80,13 +82,13 @@ def extract_next_links(url, resp):
         return links
     elif word_count < 300 and len(html) > MAX_SIZE:
         return links
-
-    TOTAL_UNIQUE_PAGES.add(url)
-    WORD_FREQUENCIES.update(words)
-
-    if word_count > LONGEST_PAGE['word_count']:
-        LONGEST_PAGE["url"] = url
-        LONGEST_PAGE["word_count"] = word_count
+    
+    with LOCK:
+        TOTAL_UNIQUE_PAGES.add(url)
+        WORD_FREQUENCIES.update(words)
+        if word_count > LONGEST_PAGE['word_count']:
+            LONGEST_PAGE["url"] = url
+            LONGEST_PAGE["word_count"] = word_count
 
     for a_tag in soup.find_all('a', href=True):
         raw = a_tag['href'].strip()
@@ -162,11 +164,12 @@ def valid_query(parsed):
 
 def is_duplicate(content):
     content_hash = compute_content_hash(content)
-    if content_hash in CRAWLED_CONTENT_HASHES:
-        return True
-    else:
-        CRAWLED_CONTENT_HASHES.add(content_hash)
-        return False
+    with LOCK: # protect shared data structures
+        if content_hash in CRAWLED_CONTENT_HASHES:
+            return True
+        else:
+            CRAWLED_CONTENT_HASHES.add(content_hash)
+            return False
 
 
 def compute_content_hash(content):
@@ -199,28 +202,33 @@ def is_near_duplicate(tokens) -> bool:
     trigram_hashes = {polynomial_rolling_hash(ngram) for ngram in trigrams}
     selected_hashes = {h for h in trigram_hashes if h % 4 == 0}
 
-    for fingerprint in NEAR_DUPLICATE:
-        intersection = selected_hashes.intersection(fingerprint)
-        union = selected_hashes.union(fingerprint)
-        similarity_score = len(intersection) / len(union) if union else 0.0
-        if similarity_score >= similarity_threshold:
-            return True
-
-    NEAR_DUPLICATE.add(frozenset(selected_hashes))
+    with LOCK:
+        for fingerprint in NEAR_DUPLICATE:
+            intersection = selected_hashes.intersection(fingerprint)
+            union = selected_hashes.union(fingerprint)
+            similarity_score = len(intersection) / len(union) if union else 0.0
+            if similarity_score >= similarity_threshold:
+                return True
+        NEAR_DUPLICATE.add(frozenset(selected_hashes))
     return False
 
 def generate_report(filename="report.txt"):
-    filtered = Counter({word: count for word, count in WORD_FREQUENCIES.items() if word not in STOPWORDS})
+    with LOCK: # protect shared data structures
+        filtered = Counter({word: count for word, count in WORD_FREQUENCIES.items() if word not in STOPWORDS})
+        # getting all values under lock to ensure consistency
+        longest_url = LONGEST_PAGE['url']
+        longest_wc = LONGEST_PAGE['word_count']
+        total_unique = len(TOTAL_UNIQUE_PAGES)
+        all_subdomains = sorted(SUBDOMAIN_PAGE_COUNT.keys())
 
     with open(filename, "w") as file:
-        file.write(f"Unique pages: {len(TOTAL_UNIQUE_PAGES)}\n")
-        file.write(f"Longest word count url: {LONGEST_PAGE['url']}\n")
-        file.write(f"Longest word count: {LONGEST_PAGE['word_count']}\n")
+        file.write(f"Unique pages: {total_unique}\n")
+        file.write(f"Longest word count url: {longest_url}\n")
+        file.write(f"Longest word count: {longest_wc}\n")
 
         for word, count in filtered.most_common(50):
             file.write(f"{word}: {count}\n")
 
-        all_subdomains = sorted(SUBDOMAIN_PAGE_COUNT.keys())
-        file.write(f'Total subdomains: {len(all_subdomains)}\n')
+        file.write(f"Total subdomains: {len(all_subdomains)}\n")
         for subdomain in all_subdomains:
             file.write(f"{subdomain}: {len(SUBDOMAIN_PAGE_COUNT[subdomain])}\n")
