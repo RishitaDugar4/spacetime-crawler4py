@@ -27,36 +27,25 @@ STOPWORDS = ["a", "about", "above", "after", "again", "against", "all", "am", "a
     "why", "why's", "with", "won't", "would", "wouldn't", "you", "you'd",
     "you'll", "you're", "you've", "your", "yours", "yourself", "yourselves"]
 
-MAX_SIZE = 500_000
+MAX_SIZE = 1_000_000
 
 SUBDOMAIN_PAGE_COUNT = defaultdict(set)
 CRAWLED_CONTENT_HASHES = set()
 WORD_FREQUENCIES = Counter()
 TOTAL_UNIQUE_PAGES = set()
 LONGEST_PAGE = {"url": None, "word_count": 0}
+
 NEAR_DUPLICATE = set()
-
-# Lock for thread-safe updates
-lock = threading.Lock()
-
-class SimpleResponse:
-    def __init__(self, url, status, raw_response=None, error=None):
-        self.url = url
-        self.status = status
-        self.raw_response = raw_response
-        self.error = error
-
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
     valid_links = [link for link in links if is_valid(link)]
 
-    with lock:
-        for link in valid_links:
-            parsed = urlparse(link)
-            host = parsed.hostname.lower() if parsed.hostname else ""
-            if host.endswith(".uci.edu"):
-                SUBDOMAIN_PAGE_COUNT[host].add(link)
+    for link in valid_links:
+        parsed = urlparse(link)
+        host = parsed.hostname.lower() if parsed.hostname else ""
+        if host.endswith(".uci.edu"):
+            SUBDOMAIN_PAGE_COUNT[host].add(link)
 
     return valid_links
 
@@ -81,7 +70,7 @@ def extract_next_links(url, resp):
     html = resp.raw_response.content
     soup = BeautifulSoup(html, 'lxml')
     text = soup.get_text(separator=' ')
-    words = tokenize(text)
+    words = [w for w in tokenize(text) if w not in STOPWORDS]
 
     if is_near_duplicate(words):
         return links
@@ -92,12 +81,12 @@ def extract_next_links(url, resp):
     elif word_count < 300 and len(html) > MAX_SIZE:
         return links
 
-    with lock:
-        TOTAL_UNIQUE_PAGES.add(url)
-        WORD_FREQUENCIES.update(words)
-        if word_count > LONGEST_PAGE['word_count']:
-            LONGEST_PAGE["url"] = url
-            LONGEST_PAGE["word_count"] = word_count
+    TOTAL_UNIQUE_PAGES.add(url)
+    WORD_FREQUENCIES.update(words)
+
+    if word_count > LONGEST_PAGE['word_count']:
+        LONGEST_PAGE["url"] = url
+        LONGEST_PAGE["word_count"] = word_count
 
     for a_tag in soup.find_all('a', href=True):
         raw = a_tag['href'].strip()
@@ -126,15 +115,16 @@ def is_valid(url):
             return False
         if "timeline" in parsed.path.lower() or re.search(r"/\d{4}/\d{2}/\d{2}", parsed.path) or re.search(r"date=\d{4}-\d{2}-\d{2}", parsed.query):
             return False
-        if ("/events/" in parsed.path or "ical" in parsed.path or "tribe" in parsed.path or "/ca/rules" in parsed.path):
-            return False
+
         if host == "gitlab.ics.uci.edu":
             return False
+
         if not (
             any(host.endswith(domain) for domain in allowed_domains)
             or (host.endswith("today.uci.edu") and parsed.path.startswith("/department/information_computer_sciences"))
         ):
             return False
+
         if not valid_query(parsed):
             return False
 
@@ -146,6 +136,7 @@ def is_valid(url):
             + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
             + r"|epub|dll|cnf|tgz|sha1"
             + r"|thmx|mso|arff|rtf|jar|csv"
+            + r"|war|java|bam|svg|ppsx|pps"
             + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower()
         )
     except TypeError:
@@ -155,22 +146,27 @@ def is_valid(url):
 
 def valid_query(parsed):
     q = parse_qs(parsed.query or "")
-    if ("do" in q and "media" in q["do"]):
-        return False
+    invalid_query_parameters = {"do", "media", "ical", "idx", "sid", "rev", "rev2", "action", "version", "tab_files", "tab_details", "a", "h", "hb", "sf"}
+
     if any(k in DOKU_MEDIA_PARAMS for k in q.keys()):
         return False
     if len(q) > 100:
         return False
+    
+    for key in q:
+        if key in invalid_query_parameters:
+            return False
+    
     return True
 
 
 def is_duplicate(content):
     content_hash = compute_content_hash(content)
-    with lock:
-        if content_hash in CRAWLED_CONTENT_HASHES:
-            return True
+    if content_hash in CRAWLED_CONTENT_HASHES:
+        return True
+    else:
         CRAWLED_CONTENT_HASHES.add(content_hash)
-    return False
+        return False
 
 
 def compute_content_hash(content):
@@ -203,19 +199,18 @@ def is_near_duplicate(tokens) -> bool:
     trigram_hashes = {polynomial_rolling_hash(ngram) for ngram in trigrams}
     selected_hashes = {h for h in trigram_hashes if h % 4 == 0}
 
-    with lock:
-        for fingerprint in NEAR_DUPLICATE:
-            intersection = selected_hashes.intersection(fingerprint)
-            union = selected_hashes.union(fingerprint)
-            similarity_score = len(intersection) / len(union) if union else 0.0
-            if similarity_score >= similarity_threshold:
-                return True
-        NEAR_DUPLICATE.add(frozenset(selected_hashes))
+    for fingerprint in NEAR_DUPLICATE:
+        intersection = selected_hashes.intersection(fingerprint)
+        union = selected_hashes.union(fingerprint)
+        similarity_score = len(intersection) / len(union) if union else 0.0
+        if similarity_score >= similarity_threshold:
+            return True
+
+    NEAR_DUPLICATE.add(frozenset(selected_hashes))
     return False
 
 def generate_report(filename="report.txt"):
-    sw = set(STOPWORDS)
-    filtered = Counter({word: count for word, count in WORD_FREQUENCIES.items() if word not in sw})
+    filtered = Counter({word: count for word, count in WORD_FREQUENCIES.items() if word not in STOPWORDS})
 
     with open(filename, "w") as file:
         file.write(f"Unique pages: {len(TOTAL_UNIQUE_PAGES)}\n")
