@@ -29,7 +29,6 @@ STOPWORDS = ["a", "about", "above", "after", "again", "against", "all", "am", "a
 
 MAX_SIZE = 500_000
 
-# -------------------- GLOBAL DATA --------------------
 SUBDOMAIN_PAGE_COUNT = defaultdict(set)
 CRAWLED_CONTENT_HASHES = set()
 WORD_FREQUENCIES = Counter()
