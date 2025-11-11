@@ -1,6 +1,10 @@
 import os
 import shelve
 
+from collections import defaultdict
+import time
+from urllib.parse import urlparse
+
 from threading import Thread, RLock
 from queue import Queue, Empty
 
