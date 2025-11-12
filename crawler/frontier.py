@@ -68,7 +68,7 @@ class Frontier(object):
                         return self.to_be_downloaded.pop()
                     except IndexError:
                         return None
-            return None
+                return None
 
     def add_url(self, url):
         url = normalize(url)
