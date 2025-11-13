@@ -65,10 +65,10 @@ class Frontier(object):
                 if now - last_access >= self.politeness_delay:
                     self.domain_last_access[domain] = now
                     try:
-                        return self.to_be_downloaded.pop()
+                        return self.to_be_downloaded.pop(i)
                     except IndexError:
                         return None
-                return None
+            return None
 
     def add_url(self, url):
         url = normalize(url)
