@@ -28,7 +28,8 @@ class Worker(Thread):
                 idle_backoff = min(idle_backoff * 2, 0.5)
                 # if it stays empty for a while, we can assume crawling is done
                 continue
-            idle_backoff = 0.05  # reset backoff time 
+            # reset backoff time 
+            idle_backoff = 0.05
             resp = download(tbd_url, self.config, self.logger)
             self.logger.info(
                 f"Downloaded {tbd_url}, status <{resp.status}>, "
